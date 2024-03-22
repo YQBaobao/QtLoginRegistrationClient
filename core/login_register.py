@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 """
-@ Project     : QtLoginRegistration 
+@ Project     : QtLoginRegistrationClient
 @ File        : login_register.py
 @ Author      : yqbao
 @ Version     : V1.0.0
-@ Description : 
+@ Description :
 """
-import datetime
-from threading import Thread
+from hashlib import md5
 
+from PyQt5 import QtNetwork
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QDialog
 from email_validator import validate_email, EmailNotValidError
 
 from lib import crypto
 from lib.basic_function import BasicFunction
+from lib.network import Network
 from uis.LoginRegisterEmail import Ui_LoginRegister
+from setting import CONFIG
+
+API_HOST = CONFIG.API_HOST
 
 
 class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
     """界面逻辑"""
+    url_token = f'{API_HOST}/token'
+    url_task_result = f'{API_HOST}/task/'
+    url_login = f'{API_HOST}/user/login-signup/user'
+    url_send_email = f'{API_HOST}/user/login-signup/send-email'
+    url_register = f'{API_HOST}/user/login-signup/sign-up'
+    url_forget_password = f'{API_HOST}/user/login-signup/update-password'
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -28,6 +38,7 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
 
         self.init_ui()
         self.basic_function = BasicFunction(self)
+        self.network = Network(basic_function=self.basic_function)
 
     def init_ui(self):
         """初始化"""
@@ -42,19 +53,19 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
         self.pushButtonLogin.clicked.connect(self.login)
 
         # 注册页需要绑定的信号
+        self.pushButtonSend.clicked.connect(self.register_send_active_email)
         self.lineEdit_3.textEdited.connect(
             lambda: self.check_password(self.lineEdit_3, self.lineEdit_4, self.label_9, self.pushButtonRegister))
         self.lineEdit_4.textEdited.connect(
             lambda: self.check_password(self.lineEdit_3, self.lineEdit_4, self.label_9, self.pushButtonRegister))
-        self.pushButtonSend.clicked.connect(lambda: self.send_captcha(self.lineEdit_2, self.pushButtonSend))
         self.pushButtonRegister.clicked.connect(self.register)
 
         # 忘记密码页绑定信号
+        self.pushButtonSend2.clicked.connect(self.forget_password_send_active_email)
         self.lineEdit_7.textEdited.connect(
             lambda: self.check_password(self.lineEdit_7, self.lineEdit_8, self.label_14, self.pushButtonForgetOk))
         self.lineEdit_8.textEdited.connect(
             lambda: self.check_password(self.lineEdit_7, self.lineEdit_8, self.label_14, self.pushButtonForgetOk))
-        self.pushButtonSend2.clicked.connect(lambda: self.send_captcha(self.lineEdit_6, self.pushButtonSend2))
         self.pushButtonForgetOk.clicked.connect(self.forget_password)
 
         # 窗口切换信号
@@ -63,7 +74,20 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
         # 记住
         self.accounts = 'remember'
         crypto.create_db(self.accounts)  # 创建存储库
-        self.remember_init()
+        self.init_remember()
+
+    def init_time(self):
+        self.count = 60
+        self.time = QTimer(self)
+        self.time.setInterval(1000)
+
+    def init_remember(self):
+        """初始化"""
+        if not self.required_remember():
+            return
+        self.lineEditUsername.setText(self.username)
+        self.lineEditPassword.setText(self.password)
+        return True
 
     def update_stacked_widget(self):
         self.lineEditUsername.clear()
@@ -78,73 +102,181 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
         self.lineEdit_8.clear()
         self.lineEdit_9.clear()
 
-    def init_time(self):
-        self.count = 60
-        self.time = QTimer(self)
-        self.time.setInterval(1000)
-
     def login(self):
         """登录动作"""
-        if not self.login_required():  # 必填校验未通过
+        if not self.required_login():  # 必填校验未通过
             return
-        try:
-            info = validate_email(self.account, check_deliverability=False)
-            email = info.normalized
-            with session_factory() as db:
-                user = self.user.get_user_by_email(db, email)
-        except EmailNotValidError:  # 输入的是否是邮箱，不是将报错
-            with session_factory() as db:
-                user = self.user.get_user_by_username(db, self.account)
-
-        if not user:  # 查询空，无此用户
-            self.basic_function.info_message("用户名或密码错误")
-            return
-        if not user.disabled:
-            self.basic_function.info_message("此用户账号已被禁用")
+        if not self.check_email_format(self.lineEditUsername):
             return
         bytes_my_password = bytes(self.password, encoding="utf-8")
-        str_my_hash_password = user.password
-        bytes_my_hash_password = bytes(str_my_hash_password, encoding='utf-8')
-        check = bcrypt.checkpw(bytes_my_password, bytes_my_hash_password)
-        if not check:  # 校验通过，设置QDialog对象状态为允许
-            self.basic_function.info_message("用户名或密码错误")
-            return
-        self.accept()
-        self.remember()
+        md5_my_password = md5(bytes_my_password).hexdigest()
+        body = f"grant_type=&username={self.username}&password={md5_my_password}&scope=&client_id=&client_secret="
+        self.manager = self.network.post_x_www(self.url_token, body)
+        self.manager.finished.connect(self.login_response)
 
-    def login_required(self):
-        """登录必填校验"""
-        self.account = self.lineEditUsername.text()
-        self.password = self.lineEditPassword.text()
-        if not self.account.strip():
-            self.basic_function.info_message("用户账号不能为空")
+    def login_response(self, reply: QtNetwork.QNetworkReply):
+        response = self.network.response(self.manager, reply)
+        if not response:
             return
-        if not self.password.strip():
-            self.basic_function.info_message("用户密码不能为空")
+        self.access_token = response['access_token']
+        self.accept()
+        self.update_login_config(self.password)
+
+    def update_login_config(self, password):
+        """手动登录更新配置文件"""
+        if not self.checkBox.isChecked():
+            crypto.delete_db(self.accounts)
             return
-        return True
+        crypto.delete_db(self.accounts)
+        crypto.insert_db(self.accounts, self.username, password)
 
     def register(self):
         """注册动作"""
-        if (not self.register_required() or
-                not self.check_email_format() or
-                not self.check_email_username_unique() or
-                not self.check_captcha()):  # 数据校验
+        if not self.required_register():  # 必填校验未通过
+            return
+        if not self.check_email_format(self.lineEdit_2):
             return
         bytes_my_password = bytes(self.password, encoding="utf-8")
-        bytes_my_hash_password = bcrypt.hashpw(bytes_my_password, bcrypt.gensalt(rounds=13))
-        str_my_hash_password = bytes.decode(bytes_my_hash_password)
-        user = schemas.UserRegister(
-            username=self.username, password=str_my_hash_password, email=self.email, createTime=datetime.datetime.now())
-        with session_factory() as db:
-            self.user.create(db, user)
+        md5_my_password = md5(bytes_my_password).hexdigest()
+        body = {
+            "username": self.username,
+            "password": md5_my_password,
+            "email": self.email,
+            "captcha": self.captcha
+        }
+        self.manager = self.network.post_json(self.url_register, body)
+        self.manager.finished.connect(self.register_response)
+
+    def register_response(self, reply: QtNetwork.QNetworkReply):
+        response = self.network.response(self.manager, reply)
+        if not response:
+            return
         # 注册成功后，判断是否选中直接登录,若未选中，则切换会登录页
         if self.checkBox_2.isChecked():
+            bytes_my_password = bytes(self.password, encoding="utf-8")
+            md5_my_password = md5(bytes_my_password).hexdigest()
+            body = f"username={self.username}&password={md5_my_password}"
+            self.manager = self.network.post_x_www(self.url_token, body)
+            self.manager.finished.connect(self.login_response)
+        else:
+            self.stackedWidget.setCurrentIndex(0)
+
+    def register_send_active_email(self):
+        """发送验证码"""
+        if not self.required_send_email(self.lineEdit_2):  # 必填校验未通过
+            return
+        if not self.check_email_format(self.lineEdit_2):
+            return
+        self.time.timeout.connect(lambda: self.refresh_time(self.pushButtonSend))
+        if self.pushButtonSend.isEnabled():
+            self.time.start()
+            self.pushButtonSend.setEnabled(False)
+        # 发送邮件
+        self.manager = self.network.post_json(self.url_send_email, {"email": self.email})
+        self.manager.finished.connect(self.send_email_response)
+
+    def send_email_response(self, reply: QtNetwork.QNetworkReply):
+        response = self.network.response(self.manager, reply)
+        if not response:
+            return
+        result = self.check_send_email_result(response)
+        if result is not True and result:
+            self.basic_function.info_message(result)
+
+    def check_email_format(self, email_line_edit):
+        """邮箱格式校验"""
+        email = email_line_edit.text()
+        if email_line_edit.objectName() == "lineEditUsername":
+            return True
+        try:
+            info = validate_email(email, check_deliverability=False)
+            self.email = info.normalized
+            return True
+        except EmailNotValidError:
+            self.basic_function.info_message("邮箱格式不正确，请重新输入")
+            return
+
+    @staticmethod
+    def check_send_email_result(response):
+        """检查邮箱发送结果"""
+        try:
+            status = response['data']['status']
+            if status == 200:
+                return True
+            return response['data']['msg']
+        except Exception:
+            return
+
+    def check_password(self, password_line_edit, old_password_line_edit, label, push_button):
+        """重复密码的验证"""
+        self.password = password_line_edit.text()
+        self.repeat_password = old_password_line_edit.text()
+        if self.password != self.repeat_password:
+            label.setStyleSheet("color: rgb(255, 0, 0);")
+            label.setText("两次密码输入不一致，重新输入")
+            push_button.setEnabled(False)
+            return
+        label.setText("")
+        push_button.setEnabled(True)
+
+    def forget_password_send_active_email(self):
+        """发送验证码"""
+        if not self.required_send_email(self.lineEdit_6):  # 必填校验未通过
+            return
+        if not self.check_email_format(self.lineEdit_6):
+            return
+        self.time.timeout.connect(lambda: self.refresh_time(self.pushButtonSend2))
+        if self.pushButtonSend2.isEnabled():
+            self.time.start()
+            self.pushButtonSend2.setEnabled(False)
+        # 发送邮件
+        self.manager = self.network.post_json(self.url_send_email, {"email": self.email})
+        self.manager.finished.connect(self.send_email_response)
+
+    def refresh_time(self, captcha_push_button):
+        if self.count > 0:
+            captcha_push_button.setText(str(self.count) + '秒后重发')
+            self.count -= 1
+        else:
+            self.time.stop()
+            captcha_push_button.setEnabled(True)
+            captcha_push_button.setText('发送')
+            self.count = 60
+
+    def forget_password(self):
+        """忘记密码动作"""
+        if not self.required_forget_password():
+            return
+        if not self.check_email_format(self.lineEdit_6):
+            return
+        bytes_my_password = bytes(self.password, encoding="utf-8")
+        md5_my_password = md5(bytes_my_password).hexdigest()
+        body = {
+            "password": md5_my_password,
+            "email": self.email,
+            "captcha": self.captcha
+        }
+        self.manager = self.network.post_json(self.url_forget_password, body)
+        self.manager.finished.connect(self.register_response)
+        # 注册成功后，判断是否选中找回密码后直接登录,若未选中，则切换会登录页
+        if self.checkBox_3.isChecked():
             self.accept()
         else:
             self.stackedWidget.setCurrentIndex(0)
 
-    def register_required(self):
+    def required_login(self):
+        """登录必填校验"""
+        self.username = self.lineEditUsername.text()
+        self.password = self.lineEditPassword.text()
+        if not self.username.strip():
+            self.basic_function.info_message("用户账号不能为空")
+            return False
+        elif not self.password.strip():
+            self.basic_function.info_message("用户密码不能为空")
+            return False
+        return True
+
+    def required_register(self):
         """注册必填校验"""
         self.username = self.lineEdit.text()
         self.captcha = self.lineEdit_5.text()
@@ -167,134 +299,7 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
             return False
         return True
 
-    def check_email_format(self):
-        """邮箱格式校验"""
-        try:
-            info = validate_email(self.email, check_deliverability=False)
-            self.email = info.normalized
-            return True
-        except EmailNotValidError:
-            self.basic_function.info_message("邮箱格式不正确，请重新输入")
-            return
-
-    def check_email_username_unique(self):
-        """检查邮箱与账号是否已被注册"""
-        with session_factory() as db:
-            get_email = self.user.get_user_by_email(db, self.email)
-            get_username = self.user.get_user_by_username(db, self.username)
-        if get_email:
-            self.basic_function.info_message("邮箱地址已存在")
-            return
-        if get_username:
-            self.basic_function.info_message("账号已存在")
-            return
-        return True
-
-    def check_captcha(self):
-        """检查验证码"""
-        with session_factory() as db:
-            get_active_code = self.confirm_string.get_confirm_string_by_email(db, self.email)
-        if not get_active_code:
-            self.basic_function.info_message("验证码已失效，请重新发送邮件获取")
-            return
-        time_now = datetime.datetime.now()
-        time_diff = get_active_code.activeValidityPeriod - time_now
-        if not time_diff.seconds <= 5 * 60 or time_diff.days < 0:
-            self.basic_function.info_message("验证码已过期，请重新发送邮件获取")
-            self.confirm_string.update(db, self.email, {models.ConfirmString.deleted: '1'})
-            return
-        if self.captcha != get_active_code.activeCode:
-            self.basic_function.info_message("验证码不正确，请重新输入")
-            return
-        self.confirm_string.update(db, self.email, {models.ConfirmString.deleted: '1'})
-        return True
-
-    def check_password(self, password_line_edit, old_password_line_edit, label, push_button):
-        """重复密码的验证"""
-        self.password = password_line_edit.text()
-        self.repeat_password = old_password_line_edit.text()
-        if self.password != self.repeat_password:
-            label.setStyleSheet("color: rgb(255, 0, 0);")
-            label.setText("两次密码输入不一致，重新输入！")
-            push_button.setEnabled(False)
-            return
-        label.setText("")
-        push_button.setEnabled(True)
-
-    def send_captcha(self, email_line_edit, captcha_push_button):
-        """发送验证码"""
-        if not self.send_captcha_required(email_line_edit) or not self.check_email_format():  # 数据校验
-            return
-        self.time.timeout.connect(lambda: self.refresh_time(captcha_push_button))
-        if captcha_push_button.isEnabled():
-            self.time.start()
-            captcha_push_button.setEnabled(False)
-        captcha = check_code()
-        self.save_captcha(captcha)
-        # 发送邮件是一个耗时操作，为了避免阻塞，于是定义一个线程来实现
-        thread = Thread(
-            target=self.send_email.send_active_email,
-            args=(captcha, self.email,)
-        )
-        thread.start()
-
-    def refresh_time(self, captcha_push_button):
-        if self.count > 0:
-            captcha_push_button.setText(str(self.count) + '秒后重发')
-            self.count -= 1
-        else:
-            self.time.stop()
-            captcha_push_button.setEnabled(True)
-            captcha_push_button.setText('发送')
-            self.count = 60
-
-    def send_captcha_required(self, email_line_edit):
-        self.email = email_line_edit.text()
-        if not self.email.strip():
-            self.basic_function.info_message("邮箱地址不能为空")
-            return False
-        return True
-
-    def save_captcha(self, captcha):
-        """更新数据库验证码"""
-        active_valid_time = (datetime.datetime.now() + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
-        confirm_string = schemas.ConfirmString(
-            email=self.email, activeCode=captcha, activeValidityPeriod=active_valid_time,
-            createTime=datetime.datetime.now())
-        with session_factory() as db:
-            # 每点击一次发送，就将旧的删除
-            self.confirm_string.update(db, self.email, {models.ConfirmString.deleted: 1})
-            # 保存信息
-            self.confirm_string.create(db, confirm_string)
-
-    def forget_password(self):
-        """忘记密码动作"""
-        if (not self.forget_password_required() or
-                not self.forget_password_check_email_exist() or
-                not self.check_email_format() or
-                not self.check_captcha()):  # 数据校验
-            return
-        bytes_my_password = bytes(self.password, encoding="utf-8")
-        bytes_my_hash_password = bcrypt.hashpw(bytes_my_password, bcrypt.gensalt(rounds=13))
-        str_my_hash_password = bytes.decode(bytes_my_hash_password)
-        with session_factory() as db:
-            self.user.update(db, self.email, {models.User.password: str_my_hash_password})
-        # 判断是否选中找回密码后直接登录,若未选中，则切换会登录页
-        if self.checkBox_3.isChecked():
-            self.accept()
-        else:
-            self.stackedWidget.setCurrentIndex(0)
-
-    def forget_password_check_email_exist(self):
-        """检查邮箱是否注册"""
-        with session_factory() as db:
-            get_email = self.user.get_user_by_email(db, self.email)
-        if not get_email:
-            self.basic_function.info_message("邮箱地址系统中不存在")
-            return
-        return True
-
-    def forget_password_required(self):
+    def required_forget_password(self):
         self.email = self.lineEdit_6.text()
         self.password = self.lineEdit_7.text()
         self.captcha = self.lineEdit_9.text()
@@ -312,24 +317,15 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
             return False
         return True
 
-    def remember_init(self):
-        """初始化"""
-        if not self.remember_required():
-            return
-        self.lineEditUsername.setText(self.username)
-        self.lineEditPassword.setText(self.password)
+    def required_send_email(self, email_line_edit):
+        self.email = email_line_edit.text()
+        if not self.email.strip():
+            self.basic_function.info_message("邮箱地址不能为空")
+            return False
         return True
 
-    def remember(self):
-        """记住"""
-        if not self.checkBox.isChecked():
-            crypto.delete_db(self.accounts)
-            return
-        crypto.delete_db(self.accounts)
-        crypto.insert_db(self.accounts, self.account, self.password)
-
-    def remember_required(self):
-        """参数校验"""
+    def required_remember(self):
+        """自动登录参数校验"""
         try:
             self.username, self.password = crypto.decrypt(self.accounts)
             if not self.username.strip() or not self.password.strip():
@@ -337,3 +333,7 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
         except IndexError:
             return False
         return True
+
+    def closeEvent(self, event) -> None:
+        super(UiLoginRegisterQDialog, self).closeEvent(event)
+        self.reject()

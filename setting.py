@@ -22,11 +22,6 @@ class Setting(object):
         return self.__getattribute__(key)
 
 
-class ProduceConfig(Setting):
-    """生产环境"""
-    pass
-
-
 class DevelopConfig(Setting):
     """本地开发环境"""
     ENV = "DEV"
@@ -36,9 +31,7 @@ class DevelopConfig(Setting):
 
 # 环境映射关系
 mapping = {
-    'produce': ProduceConfig,
     'develop': DevelopConfig,
 }
 
-CONFIG = mapping[os.environ.get('APP_ENV', 'develop').lower()]()  # 获取指定的环境
-# CONFIG = mapping[os.environ.get('APP_ENV', 'produce').lower()]()  # 获取指定的环境
+CONFIG = mapping[os.environ.get('APP_ENV', 'develop').lower()]()  # 开发
