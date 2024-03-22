@@ -1,11 +1,8 @@
-# QtLoginRegistration
+# QtLoginRegistrationClient
 
 #### 介绍
-使用PyQt5+SQLAlchemy+FastAPI做的一个登录注册页，使用邮箱注册与验证，前后分离
 
-QtLoginRegistrationClient 仓库是 GUI
-
-QtLoginRegistrationServer 仓库是 API
+使用PyQt5+SQLAlchemy+FastAPI做的一个登录注册页，使用邮箱注册与验证，前后分离,其中：QtLoginRegistrationClient仓库存放 GUI，QtLoginRegistrationServer仓库存放 API
 
 #### 使用说明
 [详见此处,点击前往](https://www.cnblogs.com/yqbaowo/p/17998599)
@@ -19,5 +16,6 @@ QtLoginRegistrationServer 仓库是 API
   ![forget_password.png](readme/forget_password.png)
 - 邮件样式  
   ![email.png](readme/email.png)
+
 #### 许可 
  [使用 GPL-3.0 license](https://www.gnu.org/licenses/gpl-3.0.html)
