@@ -2,12 +2,13 @@
 # -*- coding: UTF-8 -*-
 """
 @ Project     : QtLoginRegistrationClient
-@ File        : crypto.py
+@ File        : crypto_sqlcipher.py
 @ Author      : yqbao
 @ Version     : V1.0.0
 @ Description : 将 sqlite3 替换为 pysqlcipher3,实现密码访问
                 pysqlcipher3 实现密码访问 SQLite，需要手动安装
                 安装看这里：https://www.cnblogs.com/yqbaowo/p/18043628
+                使用时，替换 login_register.py 中导入的 crypto 为 crypto_sqlcipher
 """
 from pysqlcipher3 import dbapi2 as sqlite3
 import win32crypt
