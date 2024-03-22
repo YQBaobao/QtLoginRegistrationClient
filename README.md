@@ -2,7 +2,7 @@
 
 #### 介绍
 
-使用PyQt5+SQLAlchemy+FastAPI做的一个登录注册页，使用邮箱注册与验证，前后分离,其中：QtLoginRegistrationClient仓库存放 GUI，QtLoginRegistrationServer仓库存放 API
+使用PyQt5+SQLAlchemy+FastAPI做的一个登录注册页，使用邮箱注册与验证，前后分离,其中：[QtLoginRegistrationClient](https://github.com/YQBaobao/QtLoginRegistrationClient)仓库存放 GUI，[QtLoginRegistrationServer](https://github.com/YQBaobao/QtLoginRegistrationServer)仓库存放 API
 
 #### 使用说明
 [详见此处,点击前往](https://www.cnblogs.com/yqbaowo/p/17998599)
