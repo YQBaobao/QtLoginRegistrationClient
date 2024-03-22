@@ -26,8 +26,6 @@ API_HOST = CONFIG.API_HOST
 class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
     """界面逻辑"""
     url_token = f'{API_HOST}/token'
-    url_task_result = f'{API_HOST}/task/'
-    url_login = f'{API_HOST}/user/login-signup/user'
     url_send_email = f'{API_HOST}/user/login-signup/send-email'
     url_register = f'{API_HOST}/user/login-signup/sign-up'
     url_forget_password = f'{API_HOST}/user/login-signup/update-password'
