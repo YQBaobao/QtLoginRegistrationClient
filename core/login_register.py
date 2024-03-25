@@ -70,8 +70,9 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
         self.stackedWidget.currentChanged.connect(self.update_stacked_widget)
 
         # 记住
-        self.accounts = 'remember'
-        crypto.create_db(self.accounts)  # 创建存储库
+        self.accounts = 'remember.db'
+        self.table = 'remember'
+        crypto.create_db(self.accounts, self.table)  # 创建存储库
         self.init_remember()
 
     def init_time(self):
@@ -123,10 +124,10 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
     def update_login_config(self, password):
         """手动登录更新配置文件"""
         if not self.checkBox.isChecked():
-            crypto.delete_db(self.accounts)
+            crypto.delete_db(self.accounts, self.table)
             return
-        crypto.delete_db(self.accounts)
-        crypto.insert_db(self.accounts, self.username, password)
+        crypto.delete_db(self.accounts, self.table)
+        crypto.insert_db(self.accounts, self.table, self.username, password)
 
     def register(self):
         """注册动作"""
@@ -325,7 +326,7 @@ class UiLoginRegisterQDialog(QDialog, Ui_LoginRegister):
     def required_remember(self):
         """自动登录参数校验"""
         try:
-            self.username, self.password = crypto.decrypt(self.accounts)
+            self.username, self.password = crypto.decrypt(self.accounts, self.table)
             if not self.username.strip() or not self.password.strip():
                 return False
         except IndexError:
